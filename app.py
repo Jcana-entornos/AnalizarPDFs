@@ -10,7 +10,7 @@ CORS(app)  # 👈 ahora sí está bien
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return jsonify({"status": "API funcionando"})
 
 @app.route('/analizar', methods=['POST'])
 def analizar():
@@ -42,7 +42,7 @@ def analizar():
                         especialidad_actual = match.group(1).strip()
                         continue
 
-                    if re.search(r"\*{4}\d{3,4}\*", linea):
+                    if re.search(r"\b(SI|S)\b", linea, re.IGNORECASE):
                         if especialidad_actual:
                             resultados[especialidad_actual]["total"] += 1
 
