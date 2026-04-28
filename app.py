@@ -1,12 +1,15 @@
-from flask import Flask, request, jsonify, render_template
-import pdfplumber
+from flask import Flask, request, jsonify
+import fitz  # PyMuPDF
 import re
 from collections import defaultdict
-import io
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # 👈 ahora sí está bien
+CORS(app)
+
+# 🔹 Compilar regex una sola vez (más rápido)
+REGEX_ESPECIALIDAD = re.compile(r"ESPECIALIDAD:\s*(.+)")
+REGEX_SI = re.compile(r"\b(SI|S)\b", re.IGNORECASE)
 
 @app.route('/')
 def index():
@@ -15,6 +18,7 @@ def index():
 @app.route('/analizar', methods=['POST'])
 def analizar():
     try:
+        # 🔐 Seguridad básica
         if request.headers.get("API-KEY") != "12345":
             return jsonify({"error": "No autorizado"}), 403
 
@@ -22,33 +26,37 @@ def analizar():
             return jsonify({"error": "No PDF recibido"}), 400
 
         archivo = request.files['pdf']
-        pdf_bytes = archivo.read()
 
         resultados = defaultdict(lambda: {"total": 0, "admitidos": 0})
-
-        regex_especialidad = re.compile(r"ESPECIALIDAD:\s*(.+)")
         especialidad_actual = None
 
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            for pagina in pdf.pages:
-                texto = pagina.extract_text()
+        # 🔥 Abrir PDF directamente desde stream (menos RAM)
+        pdf_bytes = archivo.read()
+
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as pdf:
+            for pagina in pdf:
+                texto = pagina.get_text()
+
                 if not texto:
                     continue
 
                 for linea in texto.split("\n"):
+                    linea = linea.strip()
 
-                    match = regex_especialidad.search(linea)
+                    if len(linea) < 3:
+                        continue
+
+                    # Detectar especialidad
+                    match = REGEX_ESPECIALIDAD.search(linea)
                     if match:
                         especialidad_actual = match.group(1).strip()
                         continue
 
-                    if re.search(r"\b(SI|S)\b", linea, re.IGNORECASE):
+                    # Detectar "SI" o "S"
+                    if REGEX_SI.search(linea):
                         if especialidad_actual:
                             resultados[especialidad_actual]["total"] += 1
-
-                            # 👇 mejora aquí
-                            if re.search(r"\b(S|SI)\b", linea):
-                                resultados[especialidad_actual]["admitidos"] += 1
+                            resultados[especialidad_actual]["admitidos"] += 1
 
         return jsonify(resultados)
 
